@@ -10,7 +10,17 @@ Ask for help, chat with others, talk to me here
 * [Official Gitter Chat](https://gitter.im/PolyHook/Lobby)
 
 # Packaging
-PolyHook2 is available on vcpkg. Consider trying that installation method if you prefer.
+PolyHook2 is available on vcpkg. Consider trying that installation method if you prefer. Just install vcpkg from microsofts directions: 
+
+Commands: 
+```
+λ git clone https://github.com/Microsoft/vcpkg.git
+λ cd vcpkg
+λ .\bootstrap-vcpkg.bat -disableMetrics
+λ (as admin) .\vcpkg integrate install
+λ vcpkg.exe install polyhook2
+```
+You then simply include the polyhook headers, be sure to link the generated .lib.
 
 # Build
 ```
@@ -56,7 +66,7 @@ Read the tests for docs for now until i write some. They are extensive
 5) Software Breakpoint Hook (BreakpointHook)
     * Overwrites the first byte of a function with 0xCC and calls the callback in the exception handler. Provides the user with an automatic method to restore the original overwritten byte
 6) Hardware Breakpoint Hook (HWBreakpointHook)
-   * Sets the debug registers of the CPU to add a HW execution BP for the calling thread. The callback is called in the exception handler. Remember HW BP's are per thread, calling thread determines which thread bp is for
+   * Sets the debug registers of the CPU to add a HW execution BP for the calling thread. The callback is called in the exception handler. **Remember HW BP's are per thread, the thread calling hook() must be the same as the one that is being hooked. You may find a quick detour, then setting up the HWBP in the detour callback, then unhooking to be a useful construct.**
 7) Import Address Table Hook (IatHook)
     * Resolves loaded modules through PEB, finds IAT, then swaps the thunk pointer to the callback. 
 8) Export Address Table Hook (EatHook)
