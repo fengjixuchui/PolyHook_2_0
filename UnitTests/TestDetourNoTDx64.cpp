@@ -1,9 +1,9 @@
 #include <Catch.hpp>
 
-#include "headers/Detour/ILCallback.hpp"
+#include "polyhook2/Detour/ILCallback.hpp"
 #pragma warning( disable : 4244)
 
-#include "headers/Tests/TestEffectTracker.hpp"
+#include "polyhook2/Tests/TestEffectTracker.hpp"
 
 /**These tests can spontaneously fail if the compiler desides to optimize away
 the handler or inline the function. NOINLINE attempts to fix the latter, the former
@@ -40,8 +40,8 @@ TEST_CASE("Minimal Example", "[AsmJit]") {
 	rt.release(fn);
 }
 
-#include "headers/Detour/x64Detour.hpp"
-#include "headers/CapstoneDisassembler.hpp"
+#include "polyhook2/Detour/x64Detour.hpp"
+#include "polyhook2/CapstoneDisassembler.hpp"
 
 NOINLINE void hookMeInt(int a) {
 	volatile int var = 1;
@@ -73,14 +73,16 @@ NOINLINE void hookMeIntFloatDouble(int a, float b, double c) {
 }
 
 NOINLINE void myCallback(const PLH::ILCallback::Parameters* p, const uint8_t count, const PLH::ILCallback::ReturnValue* retVal) {
+	PH_UNUSED(retVal);
+
 	printf("Argument Count: %d\n", count);
 	for (int i = 0; i < count; i++) {
-		printf("Arg: %d asInt:%d asFloat:%f asDouble:%f\n", i, *(int*)p->getArgPtr(i), *(float*)p->getArgPtr(i), *(double*)p->getArgPtr(i));
+		printf("Arg: %d asInt:%d asFloat:%f asDouble:%f\n", i, p->getArg<int>(i), p->getArg<float>(i), p->getArg<double>(i));
 
 		// one of the args must be pretty l33t
-		float fArg = *(float*)p->getArgPtr(i);
-		double dArg = *(double*)p->getArgPtr(i);
-		if (*(int*)p->getArgPtr(i) == 1337 || (fArg > 1336.0f && fArg < 1338.0f) || (dArg > 1336.0 && dArg < 1338.0)) {
+		float fArg = p->getArg<float>(i);
+		double dArg = p->getArg<double>(i);
+		if (p->getArg<int>(i) == 1337 || (fArg > 1336.0f && fArg < 1338.0f) || (dArg > 1336.0 && dArg < 1338.0)) {
 			effectsNTD64.PeakEffect().trigger();
 		}
 	}
@@ -136,6 +138,7 @@ TEST_CASE("Minimal ILCallback", "[AsmJit][ILCallback]") {
 
 
 NOINLINE void rw(int a, float b, double c, int type) {
+	PH_UNUSED(type);
 	volatile float ans = 0.0f;
 	ans += (float)a;
 	ans += c;
@@ -147,6 +150,7 @@ NOINLINE void rw(int a, float b, double c, int type) {
 }
 
 NOINLINE float rw_float(int a, float b, double c, int type) {
+	PH_UNUSED(type);
 	volatile float ans = 0.0f;
 	ans += (float)a;
 	ans += c;
@@ -159,6 +163,7 @@ NOINLINE float rw_float(int a, float b, double c, int type) {
 }
 
 NOINLINE double rw_double(int a, float b, double c, int type) {
+	PH_UNUSED(type);
 	volatile float ans = 0.0f;
 	ans += (float)a;
 	ans += c;
@@ -171,6 +176,7 @@ NOINLINE double rw_double(int a, float b, double c, int type) {
 }
 
 NOINLINE int rw_int(int a, float b, double c, int type) {
+	PH_UNUSED(type);
 	volatile float ans = 0.0f;
 	ans += (float)a;
 	ans += c;
@@ -185,24 +191,24 @@ NOINLINE int rw_int(int a, float b, double c, int type) {
 NOINLINE void mySecondCallback(const PLH::ILCallback::Parameters* p, const uint8_t count, const PLH::ILCallback::ReturnValue* retVal) {
 	printf("Argument Count: %d\n", count);
 	for (int i = 0; i < count; i++) {
-		printf("Arg: %d asInt:%d asFloat:%f asDouble:%f\n", i, *(int*)p->getArgPtr(i), *(float*)p->getArgPtr(i), *(double*)p->getArgPtr(i));
+		printf("Arg: %d asInt:%d asFloat:%f asDouble:%f\n", i, p->getArg<int>(i), p->getArg<float>(i), p->getArg<double>(i));
 
 		// re-write to 5 iff it's l33t
-		float fArg = *(float*)p->getArgPtr(i);
-		double dArg = *(double*)p->getArgPtr(i);
-		if (*(int*)p->getArgPtr(i) == 1337) {
-			*(int*)p->getArgPtr(i) = 5;
+		float fArg = p->getArg<float>(i);
+		double dArg = p->getArg<double>(i);
+		if (p->getArg<int>(i) == 1337) {
+			p->setArg<int>(i, 5);
 		}
 		else if ((fArg > 1336.0f && fArg < 1338.0f)) {
-			*(float*)p->getArgPtr(i) = 5.0f;
+			p->setArg<float>(i, 5.0f);
 		}
 		else if (dArg > 1336.0 && dArg < 1338.0) {
-			*(double*)p->getArgPtr(i) = 5.0;
+			p->setArg<double>(i, 5.0);
 		}
 	}
 
 	// little hack, use 4th param to test different return types
-	switch (*(int*)p->getArgPtr(3)) {
+	switch (p->getArg<int>(3)) {
 	case 0:
 		*(int*)retVal->getRetPtr() = 1337;
 		break;

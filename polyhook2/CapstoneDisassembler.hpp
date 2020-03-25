@@ -5,7 +5,7 @@
 #ifndef POLYHOOK_2_0_CAPSTONEDISASSEMBLER_HPP
 #define POLYHOOK_2_0_CAPSTONEDISASSEMBLER_HPP
 
-#include "headers/ADisassembler.hpp"
+#include "polyhook2/ADisassembler.hpp"
 
 #include <capstone/include/capstone/capstone.h>
 
@@ -13,16 +13,17 @@
 #include <iostream> //for debug printing
 #include <limits>
 #include <cassert>
-#include <algorithm>
 
 namespace PLH {
 
 class CapstoneDisassembler : public ADisassembler {
 public:
-	CapstoneDisassembler(PLH::Mode mode) : ADisassembler(mode) {
-		cs_mode capmode = (mode == PLH::Mode::x64 ? CS_MODE_64 : CS_MODE_32);
-		if (cs_open(CS_ARCH_X86, capmode, &m_capHandle) != CS_ERR_OK)
-			printf("error opening cap\n");
+	CapstoneDisassembler(const PLH::Mode mode) : ADisassembler(mode) {
+		const cs_mode csMode = (mode == PLH::Mode::x64 ? CS_MODE_64 : CS_MODE_32);
+		if (cs_open(CS_ARCH_X86, csMode, &m_capHandle) != CS_ERR_OK) {
+			m_capHandle = NULL;
+			ErrorLog::singleton().push("Failed to initialize capstone", ErrorLevel::SEV);
+		}
 
 		cs_option(m_capHandle, CS_OPT_DETAIL, CS_OPT_ON);
 	}
@@ -44,9 +45,9 @@ private:
 	}
 
 	bool hasGroup(const cs_insn* inst, const x86_insn_group grp) const {
-		uint8_t GrpSize = inst->detail->groups_count;
+		const uint8_t grpSize = inst->detail->groups_count;
 
-		for (int i = 0; i < GrpSize; i++) {
+		for (int i = 0; i < grpSize; i++) {
 			if (inst->detail->groups[i] == grp)
 				return true;
 		}
@@ -61,7 +62,7 @@ private:
 	 * by byte out of the instruction, if that value is less than what capstone told us is the destination then we know that it is relative and we have to add the base.
 	 * Otherwise if our retreived displacement is equal to the given destination then it is a true absolute jmp/call (only possible in x64),
 	 * if it's greater then something broke.*/
-	void copyDispSX(PLH::Instruction& inst,
+	void copyDispSx(PLH::Instruction& inst,
 					const uint8_t offset,
 					const uint8_t size,
 					const int64_t immDestination) const;

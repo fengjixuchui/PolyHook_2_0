@@ -1,12 +1,13 @@
 #ifndef POLYHOOK_2_PAGEALLOCATOR_HPP
 #define POLYHOOK_2_PAGEALLOCATOR_HPP
 
-#include "headers/Misc.hpp"
+#include "polyhook2/Misc.hpp"
 #include <vector>
 #include <mutex>
 #include <atomic>
 #include <cassert>
 #include <limits>
+#define NOMINMAX
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif

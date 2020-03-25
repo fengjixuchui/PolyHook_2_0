@@ -2,10 +2,11 @@
 // Created by steve on 7/9/18.
 //
 #include <Catch.hpp>
-#include "headers/Detour/x64Detour.hpp"
-#include "headers/CapstoneDisassembler.hpp"
+#include "polyhook2/Detour/x64Detour.hpp"
+#include "polyhook2/CapstoneDisassembler.hpp"
+#include "polyhook2/ZydisDisassembler.hpp"
 
-#include "headers/Tests/TestEffectTracker.hpp"
+#include "polyhook2/Tests/TestEffectTracker.hpp"
 
 EffectTracker effects;
 
@@ -70,19 +71,21 @@ unsigned char hookMe4[] = {
 uint64_t nullTramp = NULL;
 NOINLINE void h_nullstub() {
 	volatile int i = 0;
+	PH_UNUSED(i);
 }
 
 #include <stdlib.h>
 uint64_t hookMallocTramp = NULL;
 NOINLINE void* h_hookMalloc(size_t size) {
 	volatile int i = 0;
+	PH_UNUSED(i);
 	effects.PeakEffect().trigger();
 
 	return PLH::FnCast(hookMallocTramp, &malloc)(size);
 }
 
-TEST_CASE("Testing 64 detours", "[x64Detour],[ADetour]") {
-	PLH::CapstoneDisassembler dis(PLH::Mode::x64);
+TEMPLATE_TEST_CASE("Testing 64 detours", "[x64Detour],[ADetour]", PLH::CapstoneDisassembler, PLH::ZydisDisassembler) {
+	TestType dis(PLH::Mode::x64);
 
 	SECTION("Normal function") {
 		PLH::x64Detour detour((char*)&hookMe1, (char*)&h_hookMe1, &hookMe1Tramp, dis);
@@ -91,6 +94,7 @@ TEST_CASE("Testing 64 detours", "[x64Detour],[ADetour]") {
 		effects.PushEffect();
 		hookMe1();
 		REQUIRE(effects.PopEffect().didExecute());
+		REQUIRE(detour.unHook() == true);
 	}
 
 	SECTION("Loop function") {
@@ -100,16 +104,19 @@ TEST_CASE("Testing 64 detours", "[x64Detour],[ADetour]") {
 		effects.PushEffect();
 		hookMe2();
 		REQUIRE(effects.PopEffect().didExecute());
+		REQUIRE(detour.unHook() == true);
 	}
 
 	SECTION("Jmp into prol w/src in range") {
 		PLH::x64Detour detour((char*)&hookMe3, (char*)&h_nullstub, &nullTramp, dis);
 		REQUIRE(detour.hook() == true);
+		REQUIRE(detour.unHook() == true);
 	}
 
 	SECTION("Jmp into prol w/src out of range") {
 		PLH::x64Detour detour((char*)&hookMe4, (char*)&h_nullstub, &nullTramp, dis);
 		REQUIRE(detour.hook() == true);
+		REQUIRE(detour.unHook() == true);
 	}
 
 	SECTION("hook malloc") {

@@ -17,29 +17,32 @@ option(CAPSTONE_FULL "Build all features of capstone." OFF)
 
 # for now only inlinentd uses asmjit
 set(DEP_ASMJIT_NEED ${FEATURE_INLINENTD})
+set(DEP_ZYDIS_NEED ON)
 # todo: make inclusion of capstone stuff depend on feature flags
 
 #IDE's like it when header file are included as source files
-set(HEADER_FILES ${PROJECT_SOURCE_DIR}/headers/ADisassembler.hpp
-        ${PROJECT_SOURCE_DIR}/headers/CapstoneDisassembler.hpp
-        ${PROJECT_SOURCE_DIR}/headers/Enums.hpp
-        ${PROJECT_SOURCE_DIR}/headers/IHook.hpp
-        ${PROJECT_SOURCE_DIR}/headers/Instruction.hpp
-        ${PROJECT_SOURCE_DIR}/headers/Misc.hpp
-		${PROJECT_SOURCE_DIR}/headers/UID.hpp
-		${PROJECT_SOURCE_DIR}/headers/ErrorLog.hpp
-		${PROJECT_SOURCE_DIR}/headers/MemProtector.hpp
-		${PROJECT_SOURCE_DIR}/headers/PageAllocator.hpp)
+set(HEADER_FILES ${PROJECT_SOURCE_DIR}/polyhook2/ADisassembler.hpp
+        ${PROJECT_SOURCE_DIR}/polyhook2/CapstoneDisassembler.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/ZydisDisassembler.hpp
+        ${PROJECT_SOURCE_DIR}/polyhook2/Enums.hpp
+        ${PROJECT_SOURCE_DIR}/polyhook2/IHook.hpp
+        ${PROJECT_SOURCE_DIR}/polyhook2/Instruction.hpp
+        ${PROJECT_SOURCE_DIR}/polyhook2/Misc.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/UID.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/ErrorLog.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/MemProtector.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/PageAllocator.hpp)
 
 set(HEADER_IMP_SOURCES 
 		${PROJECT_SOURCE_DIR}/sources/CapstoneDisassembler.cpp
+		${PROJECT_SOURCE_DIR}/sources/ZydisDisassembler.cpp
 		${PROJECT_SOURCE_DIR}/sources/MemProtector.cpp
 		${PROJECT_SOURCE_DIR}/sources/TestEffectTracker.cpp
 		${PROJECT_SOURCE_DIR}/sources/PageAllocator.cpp)
 
 # only build tests if making exe
-if(BUILD_DLL MATCHES OFF)	
-	set(UNIT_TEST_SOURCES 
+if(BUILD_DLL MATCHES OFF)
+	set(UNIT_TEST_SOURCES
 			${PROJECT_SOURCE_DIR}/MainTests.cpp
 			${PROJECT_SOURCE_DIR}/UnitTests/TestDisassembler.cpp
 			${PROJECT_SOURCE_DIR}/UnitTests/TestMemProtector.cpp)
@@ -49,9 +52,9 @@ endif()
 
 # Headers, Sources, and Test for detours
 if(FEATURE_DETOURS MATCHES ON) 
-	set(DETOUR_HEADER_FILES ${PROJECT_SOURCE_DIR}/headers/Detour/ADetour.hpp
-			${PROJECT_SOURCE_DIR}/headers/Detour/x64Detour.hpp
-			${PROJECT_SOURCE_DIR}/headers/Detour/x86Detour.hpp)
+	set(DETOUR_HEADER_FILES ${PROJECT_SOURCE_DIR}/polyhook2/Detour/ADetour.hpp
+			${PROJECT_SOURCE_DIR}/polyhook2/Detour/x64Detour.hpp
+			${PROJECT_SOURCE_DIR}/polyhook2/Detour/x86Detour.hpp)
 
 	set(DETOUR_IMP_SOURCES 
 			${PROJECT_SOURCE_DIR}/sources/ADetour.cpp
@@ -77,9 +80,9 @@ endif()
 
 if(FEATURE_EXCEPTION MATCHES ON)
 	set(EXCEPTION_HEADER_FILES 
-		${PROJECT_SOURCE_DIR}/headers/Exceptions/AVehHook.hpp
-		${PROJECT_SOURCE_DIR}/headers/Exceptions/BreakPointHook.hpp
-		${PROJECT_SOURCE_DIR}/headers/Exceptions/HWBreakPointHook.hpp)
+		${PROJECT_SOURCE_DIR}/polyhook2/Exceptions/AVehHook.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/Exceptions/BreakPointHook.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/Exceptions/HWBreakPointHook.hpp)
 
 	set(EXCEPTION_IMP_SOURCES 
 		${PROJECT_SOURCE_DIR}/sources/AVehHook.cpp
@@ -99,8 +102,8 @@ endif()
 
 if(FEATURE_VIRTUALS MATCHES ON)
 	set(VIRTUAL_HEADER_FILES 
-		${PROJECT_SOURCE_DIR}/headers/Virtuals/VTableSwapHook.hpp
-		${PROJECT_SOURCE_DIR}/headers/Virtuals/VFuncSwapHook.hpp)
+		${PROJECT_SOURCE_DIR}/polyhook2/Virtuals/VTableSwapHook.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/Virtuals/VFuncSwapHook.hpp)
 
 	set(VIRTUAL_IMP_SOURCES
 		${PROJECT_SOURCE_DIR}/sources/VTableSwapHook.cpp
@@ -119,9 +122,9 @@ endif()
 
 if(FEATURE_PE MATCHES ON)
 	set(PE_HEADER_FILES
-		${PROJECT_SOURCE_DIR}/headers/PE/EatHook.hpp
-		${PROJECT_SOURCE_DIR}/headers/PE/IatHook.hpp
-		${PROJECT_SOURCE_DIR}/headers/PE/PEB.hpp)
+		${PROJECT_SOURCE_DIR}/polyhook2/PE/EatHook.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/PE/IatHook.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/PE/PEB.hpp)
 
 	set(PE_IMP_SOURCES 
 		${PROJECT_SOURCE_DIR}/sources/EatHook.cpp
@@ -140,7 +143,7 @@ endif()
 
 if(FEATURE_INLINENTD MATCHES ON)
 	set(NTD_HEADER_FILES
-		${PROJECT_SOURCE_DIR}/headers/Detour/ILCallback.hpp)
+		${PROJECT_SOURCE_DIR}/polyhook2/Detour/ILCallback.hpp)
 
 	set(NTD_SOURCES 
 		${PROJECT_SOURCE_DIR}/sources/ILCallback.cpp)
@@ -179,7 +182,13 @@ endif()
 # add WALL + PDB flags
 if(MSVC)
   # apply wall flags only to plh src files
-  set_property(SOURCE ${SOURCE_FILES_PLH} PROPERTY COMPILE_FLAGS "/MP /W4 /WX /Z7")
+  set(COMPILE_FLAGS_PLH "/W4 /WX /Z7")
+
+  if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(COMPILE_FLAGS_PLH "/MP ${COMPILE_FLAGS_PLH}")
+  endif()
+
+  set_property(SOURCE ${SOURCE_FILES_PLH} PROPERTY COMPILE_FLAGS ${COMPILE_FLAGS_PLH})
   target_link_libraries(PolyHook_2 optimized -DEBUG) # mhhm ya pdbs
 
   # force static lib
@@ -224,9 +233,32 @@ target_link_libraries(${PROJECT_NAME} capstone-static)
 if(DEP_ASMJIT_NEED MATCHES ON)
 	# AsmJit is a dep iff inlinetd is on
 	set(ASMJIT_DIR ${PROJECT_SOURCE_DIR}/asmjit/)
-	set(ASMJIT_BUILD_STATIC ON) # give our project the BUILD_STATIC flag
-	add_definitions(-DASMJIT_BUILD_STATIC) # give asmjit the BUILD_STATIC flag
+	set(ASMJIT_STATIC ON) # give our project the BUILD_STATIC flag
+	add_definitions(-DASMJIT_STATIC) # give asmjit the BUILD_STATIC flag
 	include_directories(${ASMJIT_DIR}/src/) # includes directory is nested in src
 	add_subdirectory(${ASMJIT_DIR}) # build it
 	target_link_libraries(${PROJECT_NAME} asmjit)
 endif()
+
+if(DEP_ZYDIS_NEED MATCHES ON)
+	# static by default
+	set(ZYDIS_DIR ${PROJECT_SOURCE_DIR}/zydis/)
+	option(ZYDIS_BUILD_TOOLS "" OFF)
+	option(ZYDIS_BUILD_EXAMPLES "" OFF)
+	include_directories(${ZYDIS_DIR}/dependencies/zycore/include) # zycore includes
+	include_directories(${ZYDIS_DIR}/include) # zydis includes
+	include_directories(${CMAKE_CURRENT_BINARY_DIR}/zydis/dependencies/zycore) # find auto-generated ZycoreExportConfig.h in build dir
+	add_subdirectory(${ZYDIS_DIR}) # buld it
+	target_link_libraries(${PROJECT_NAME} Zydis)
+endif()
+
+#Install targets
+install(TARGETS ${PROJECT_NAME}
+  RUNTIME DESTINATION bin
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+)
+
+#Install headers
+INSTALL(DIRECTORY ${PROJECT_SOURCE_DIR}/polyhook2 DESTINATION include/)
+

@@ -1,16 +1,16 @@
-#include "headers/PE/EatHook.hpp"
+#include "polyhook2/PE/EatHook.hpp"
 
 PLH::EatHook::EatHook(const std::string& apiName, const std::wstring& moduleName, const char* fnCallback, uint64_t* userOrigVar)
 	: EatHook(apiName, moduleName, (uint64_t)fnCallback, userOrigVar)
 {}
 
 PLH::EatHook::EatHook(const std::string& apiName, const std::wstring& moduleName, const uint64_t fnCallback, uint64_t* userOrigVar)
-	: m_apiName(apiName)
-	, m_moduleName(moduleName)
-    , m_userOrigVar(userOrigVar)
+	: m_moduleName(moduleName)
+	, m_apiName(apiName)
     , m_fnCallback(fnCallback)
+    , m_userOrigVar(userOrigVar)
+	, m_allocator(nullptr)
 	, m_trampoline(0)
-	, m_allocator(0)
 {}
 
 PLH::EatHook::~EatHook() {
@@ -19,9 +19,9 @@ PLH::EatHook::~EatHook() {
 		m_trampoline = 0;
 	}
 
-	if (m_allocator != 0) {
+	if (m_allocator != nullptr) {
 		delete m_allocator;
-		m_allocator = 0;
+		m_allocator = nullptr;
 	}
 }
 
@@ -94,7 +94,7 @@ uint32_t* PLH::EatHook::FindEatFunction(const std::string& apiName, const std::w
 	PEB_LDR_DATA* ldr = (PPEB_LDR_DATA)peb->Ldr;
 
 	// find loaded module from peb
-	for (LDR_DATA_TABLE_ENTRY* dte = (LDR_DATA_TABLE_ENTRY*)ldr->InLoadOrderModuleList.Flink;
+	for (auto* dte = (LDR_DATA_TABLE_ENTRY*)ldr->InLoadOrderModuleList.Flink;
         dte->DllBase != NULL;
         dte = (LDR_DATA_TABLE_ENTRY*)dte->InLoadOrderLinks.Flink) {
 
@@ -123,20 +123,20 @@ uint32_t* PLH::EatHook::FindEatFunctionInModule(const std::string& apiName) {
 	if (m_moduleBase == NULL)
 		return NULL;
 
-	IMAGE_DOS_HEADER* pDos = (IMAGE_DOS_HEADER*)m_moduleBase;
-	IMAGE_NT_HEADERS* pNT = RVA2VA(IMAGE_NT_HEADERS*, m_moduleBase, pDos->e_lfanew);
-	IMAGE_DATA_DIRECTORY* pDataDir = (IMAGE_DATA_DIRECTORY*)pNT->OptionalHeader.DataDirectory;
+	auto* pDos = (IMAGE_DOS_HEADER*)m_moduleBase;
+	auto* pNT = RVA2VA(IMAGE_NT_HEADERS*, m_moduleBase, pDos->e_lfanew);
+	auto* pDataDir = (IMAGE_DATA_DIRECTORY*)pNT->OptionalHeader.DataDirectory;
 
 	if (pDataDir[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress == NULL) {
 		ErrorLog::singleton().push("PEs without export tables are unsupported", ErrorLevel::SEV);
 		return NULL;
 	}
 
-	IMAGE_EXPORT_DIRECTORY* pExports = RVA2VA(IMAGE_EXPORT_DIRECTORY*, m_moduleBase, pDataDir[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+	auto* pExports = RVA2VA(IMAGE_EXPORT_DIRECTORY*, m_moduleBase, pDataDir[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
 
-	uint32_t* pAddressOfFunctions = RVA2VA(uint32_t*, m_moduleBase, pExports->AddressOfFunctions);
-	uint32_t* pAddressOfNames = RVA2VA(uint32_t*, m_moduleBase, pExports->AddressOfNames);
-	uint16_t* pAddressOfNameOrdinals = RVA2VA(uint16_t*, m_moduleBase, pExports->AddressOfNameOrdinals);
+	auto* pAddressOfFunctions = RVA2VA(uint32_t*, m_moduleBase, pExports->AddressOfFunctions);
+	auto* pAddressOfNames = RVA2VA(uint32_t*, m_moduleBase, pExports->AddressOfNames);
+	auto* pAddressOfNameOrdinals = RVA2VA(uint16_t*, m_moduleBase, pExports->AddressOfNameOrdinals);
 
 	for (uint32_t i = 0; i < pExports->NumberOfNames; i++)
 	{
@@ -145,7 +145,7 @@ uint32_t* PLH::EatHook::FindEatFunctionInModule(const std::string& apiName) {
 			continue;
 
 		// std::cout << RVA2VA(char*, m_moduleBase, pAddressOfNames[i]) << std::endl;
-		uint16_t iExportOrdinal = pAddressOfNameOrdinals[i];
+		const uint16_t iExportOrdinal = pAddressOfNameOrdinals[i];
 		uint32_t* pExportAddress = &pAddressOfFunctions[iExportOrdinal];
 
 		return pExportAddress;
