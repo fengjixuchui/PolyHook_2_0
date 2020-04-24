@@ -17,7 +17,6 @@
 namespace PLH {
 	class ILCallback {
 	public:
-		#pragma pack(1)
 		struct Parameters {
 			template<typename T>
 			void setArg(const uint8_t idx, const T val) const {
@@ -30,21 +29,13 @@ namespace PLH {
 			}
 
 			// asm depends on this specific type
+			// we the ILCallback allocates stack space that is set to point here
 			volatile uint64_t m_arguments;
-
-			/*
-			* Flexible array members like above are not valid in C++ and are U.B. However, we make
-			* sure that we allocate the actual memory we touch when we access beyond index [0]. However,
-			* this is STILL not enough as the compiler is allowed to optmize away U.B. so we make one
-			* additional attempt to always access through a char* (must be char*, not unsigned char*) to avoid aliasing rules which helps
-			* the compiler not be ridiculous. It's still NOT safe, but it's good enough 99.99% of the time.
-			* Oh and volatile might help this too, so we add that.
-			*/
 		private:
 			// must be char* for aliasing rules to work when reading back out
-			char* getArgPtr(const uint8_t idx) {
-			    return ((char*)&m_arguments) + sizeof(uint64_t) * idx;
-		        }
+			char* getArgPtr(const uint8_t idx) const {
+				return ((char*)&m_arguments) + sizeof(uint64_t) * idx;
+			}
 		};
 
 		struct ReturnValue {
@@ -55,12 +46,12 @@ namespace PLH {
 		};
 
 		typedef void(*tUserCallback)(const Parameters* params, const uint8_t count, const ReturnValue* ret);
-		
+
 		ILCallback();
 		~ILCallback();
 
 		/* Construct a callback given the raw signature at runtime. 'Callback' param is the C stub to transfer to,
-		where parameters can be modified through a structure which is written back to the parameter slots depending 
+		where parameters can be modified through a structure which is written back to the parameter slots depending
 		on calling convention.*/
 		uint64_t getJitFunc(const asmjit::FuncSignature& sig, const tUserCallback callback);
 
@@ -83,7 +74,7 @@ namespace PLH {
 		asmjit::x86::Mem argsStack;
 
 		// ptr to trampoline allocated by hook, we hold this so user doesn't need to.
-		uint64_t m_trampolinePtr; 
+		uint64_t m_trampolinePtr;
 	};
 }
 #endif // POLYHOOK_2_0_ILCALLBACK_HPP
