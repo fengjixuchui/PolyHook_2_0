@@ -46,6 +46,7 @@ public:
 	* an instruction should be disasm instructions -> set relative/absolute displacement() ->
 	**/
 	static void writeEncoding(const Instruction& instruction) {
+		assert(instruction.size() <= instruction.getBytes().size());
 		memcpy((void*)instruction.getAddress(), &instruction.getBytes()[0], instruction.size());
 	}
 
@@ -84,7 +85,15 @@ public:
 		* 0xFDFDFDFD : Used by Microsoft's C++ debugging heap to mark "no man's land" guard bytes before and after allocated heap memory
 		* 0xFEEEFEEE : Used by Microsoft's HeapFree() to mark freed heap memory
 		*/
-		return instruction.getMnemonic() == "ret";
+		std::string mnemonic = instruction.getMnemonic();
+		auto byts = instruction.getBytes();
+		return (instruction.size() == 1 && byts[0] == 0xCC) || 
+			(instruction.size() >= 2 && byts[0] == 0xf3 && byts[1] == 0xc3) ||
+			mnemonic == "ret" || mnemonic == "jmp";
+	}
+
+	static bool isPadBytes(const PLH::Instruction& instruction) {
+		return instruction.size() == 1 && instruction.getBytes()[0] == 0xCC;
 	}
 
 	branch_map_t getBranchMap() {

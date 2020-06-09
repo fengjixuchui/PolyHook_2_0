@@ -94,7 +94,7 @@ protected:
 	/**If function starts with a jump follow it until the first non-jump instruction, recursively. This handles already hooked functions
 	and also compilers that emit jump tables on function call. Returns true if resolution was successful (nothing to resolve, or resolution worked),
 	false if resolution failed.**/
-	bool followJmp(insts_t& functionInsts, const uint8_t curDepth = 0, const uint8_t depth = 3);
+	bool followJmp(insts_t& functionInsts, const uint8_t curDepth = 0, const uint8_t depth = 5);
 
 	/**Expand the prologue up to the address of the last jmp that points back into the prologue. This
 	is necessary because we modify the location of things in the prologue, so re-entrant jmps point
@@ -123,7 +123,7 @@ PLH::insts_t PLH::Detour::relocateTrampoline(insts_t& prologue, uint64_t jmpTblS
 			assert(inst.hasDisplacement());
 			// make an entry pointing to where inst did point to
 			auto entry = makeJmp(jmpTblCurAddr, inst.getDestination());
-
+			
 			// move inst to trampoline and point instruction to entry
 			inst.setAddress(inst.getAddress() + delta);
 			inst.setDestination(jmpTblCurAddr);

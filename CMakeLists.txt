@@ -183,16 +183,20 @@ set(POLYHOOK_CORE_HEADERS ${PROJECT_SOURCE_DIR}/polyhook2/ADisassembler.hpp
 		${PROJECT_SOURCE_DIR}/polyhook2/UID.hpp
 		${PROJECT_SOURCE_DIR}/polyhook2/ErrorLog.hpp
 		${PROJECT_SOURCE_DIR}/polyhook2/MemProtector.hpp
-		${PROJECT_SOURCE_DIR}/polyhook2/PageAllocator.hpp)
+		${PROJECT_SOURCE_DIR}/polyhook2/PageAllocator.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/Tests/TestEffectTracker.hpp
+		${PROJECT_SOURCE_DIR}/polyhook2/Tests/StackCanary.hpp
+		)
 install(FILES ${POLYHOOK_CORE_HEADERS} DESTINATION include/polyhook2)
 
 
 target_sources(${PROJECT_NAME} PRIVATE
 	${PROJECT_SOURCE_DIR}/sources/MemProtector.cpp
 	${PROJECT_SOURCE_DIR}/sources/TestEffectTracker.cpp
+	${PROJECT_SOURCE_DIR}/sources/StackCanary.cpp
 	${PROJECT_SOURCE_DIR}/sources/PageAllocator.cpp
 	${PROJECT_SOURCE_DIR}/sources/ErrorLog.cpp
-	${PROJECT_SOURCE_DIR}/sources/UID.cpp)
+	${PROJECT_SOURCE_DIR}/sources/UID.cpp )
 
 #DisAsm/Capstone
 if(POLYHOOK_DISASM_CAPSTONE)

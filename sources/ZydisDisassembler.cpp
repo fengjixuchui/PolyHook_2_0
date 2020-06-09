@@ -48,6 +48,7 @@ PLH::ZydisDisassembler::disassemble(uint64_t firstInstruction, uint64_t start, u
 						 displacement,
 						 0,
 						 false,
+			             false,
 						 (uint8_t*)((unsigned char*)firstInstruction + offset),
 						 insInfo.length,
 						 ZydisMnemonicGetString(insInfo.mnemonic),
@@ -97,12 +98,30 @@ void PLH::ZydisDisassembler::setDisplacementFields(PLH::Instruction& inst, const
             break;
         case ZYDIS_OPERAND_TYPE_MEMORY:
 			// Relative to RIP/EIP
-			if(zydisInst->attributes & ZYDIS_ATTRIB_IS_RELATIVE)
+		
+		{
+			bool set = false;
+			if (zydisInst->attributes & ZYDIS_ATTRIB_IS_RELATIVE)
 			{
 				inst.setDisplacementOffset(zydisInst->raw.disp.offset);
 				inst.setRelativeDisplacement(operand->mem.disp.value);
-				return;
+				set = true;
 			}
+
+			if ((zydisInst->mnemonic == ZydisMnemonic::ZYDIS_MNEMONIC_JMP && inst.size() >= 2 && inst.getBytes().at(0) == 0xff && inst.getBytes().at(1) == 0x25) ||
+				(zydisInst->mnemonic == ZydisMnemonic::ZYDIS_MNEMONIC_CALL && inst.size() >= 2 && inst.getBytes().at(0) == 0xff && inst.getBytes().at(1) == 0x15) ||
+				(zydisInst->mnemonic == ZydisMnemonic::ZYDIS_MNEMONIC_CALL && inst.size() >= 3 && inst.getBytes().at(1) == 0xff && inst.getBytes().at(2) == 0x15) ||
+				(zydisInst->mnemonic == ZydisMnemonic::ZYDIS_MNEMONIC_JMP && inst.size() >= 3 && inst.getBytes().at(1) == 0xff && inst.getBytes().at(2) == 0x15)
+				) {
+
+				if (!set) {
+					// displacement is absolute on x86 mode
+					inst.setDisplacementOffset(zydisInst->raw.disp.offset);
+					inst.setAbsoluteDisplacement(zydisInst->raw.disp.value);
+				}
+				inst.setIndirect(true);
+			}
+		}
             break;
         case ZYDIS_OPERAND_TYPE_POINTER:
 			
