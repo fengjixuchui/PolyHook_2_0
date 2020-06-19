@@ -23,6 +23,75 @@ uint8_t PLH::x64Detour::getPrefJmpSize() const {
 	return 16;
 }
 
+std::optional<uint64_t> PLH::x64Detour::findNearestCodeCave(uint64_t addr, uint8_t minSz) {
+	HANDLE hSelf = GetCurrentProcess();
+	const uint64_t chunkSize = 64000;
+	unsigned char* data = new unsigned char[chunkSize];
+
+	// RPM so we don't pagefault, careful to check for partial reads
+	auto calc_2gb_below = [](uint64_t address) -> uint64_t
+	{
+		return (address > (uint64_t)0x7ff80000) ? address - 0x7ff80000 : 0x80000;
+	};
+
+	auto calc2gb_above = [](uint64_t address) -> uint64_t
+	{
+		return (address < (uint64_t)0xffffffff80000000) ? address + 0x7ff80000 : (uint64_t)0xfffffffffff80000;
+	};
+	
+	// Search 2GB below
+	for (uint64_t search = addr - chunkSize; (search + chunkSize) >= calc_2gb_below(addr); search -= chunkSize) {
+		memset(data, 0, chunkSize);
+
+		SIZE_T read = 0;
+		if (ReadProcessMemory(hSelf, (char*)search, data, chunkSize, &read) || GetLastError() == ERROR_PARTIAL_COPY) {
+			uint32_t contiguous = 0;
+
+			// read from highest address first (closest to prologue)
+			for (size_t i = read - 1; i >= 0; i--) {
+				if (data[i] == 0xCC) {
+					contiguous++;
+				}
+				else {
+					contiguous = 0;
+				}
+
+				if (contiguous >= minSz) {
+					delete[] data;
+					return search + i;
+				}
+			}
+		}
+	}
+
+	// Search 2GB above
+	for (uint64_t search = addr; (search + chunkSize) < calc2gb_above(addr); search += chunkSize) {
+		memset(data, 0, chunkSize);
+
+		SIZE_T read = 0;
+		if (ReadProcessMemory(hSelf, (char*)search, data, chunkSize, &read) || GetLastError() == ERROR_PARTIAL_COPY) {
+			uint32_t contiguous = 0;
+
+			for (size_t i = 0; i < read; i++) {
+				if (data[i] == 0xCC) {
+					contiguous++;
+				}
+				else {
+					contiguous = 0;
+				}
+
+				if (contiguous >= minSz) {
+					delete[] data;
+					return search + i - contiguous + 1;
+				}
+			}
+		}
+	}
+
+	delete[] data;
+	return {};
+}
+
 bool PLH::x64Detour::hook() {
 	// ------- Must resolve callback first, so that m_disasm branchmap is filled for prologue stuff
 	insts_t callbackInsts = m_disasm.disassemble(m_fnCallback, m_fnCallback, m_fnCallback + 100);
@@ -56,13 +125,14 @@ bool PLH::x64Detour::hook() {
 	// --------------- END RECURSIVE JMP RESOLUTION ---------------------
 	ErrorLog::singleton().push("Original function:\n" + instsToStr(insts) + "\n", ErrorLevel::INFO);
 
-	uint64_t minProlSz = getPrefJmpSize(); // min size of patches that may split instructions
+	uint64_t minProlSz = getMinJmpSize(); // min size of patches that may split instructions
 	uint64_t roundProlSz = minProlSz; // nearest size to min that doesn't split any instructions
 
+	std::optional<PLH::insts_t> prologueOpt;
 	insts_t prologue;
 	{
 		// find the prologue section we will overwrite with jmp + zero or more nops
-		auto prologueOpt = calcNearestSz(insts, minProlSz, roundProlSz);
+		prologueOpt = calcNearestSz(insts, minProlSz, roundProlSz);
 		if (!prologueOpt) {
 			ErrorLog::singleton().push("Function too small to hook safely!", ErrorLevel::SEV);
 			return false;
@@ -82,21 +152,31 @@ bool PLH::x64Detour::hook() {
 	
 	{   // copy all the prologue stuff to trampoline
 		insts_t jmpTblOpt;
-		if (!makeTrampoline(prologue, jmpTblOpt))
+		if (!makeTrampoline(prologue, jmpTblOpt)) {
 			return false;
+		}
 
 		ErrorLog::singleton().push("Trampoline:\n" + instsToStr(m_disasm.disassemble(m_trampoline, m_trampoline, m_trampoline + m_trampolineSz)) + "\n", ErrorLevel::INFO);
-		if (jmpTblOpt.empty())
+		if (!jmpTblOpt.empty())
 			ErrorLog::singleton().push("Trampoline Jmp Tbl:\n" + instsToStr(jmpTblOpt) + "\n", ErrorLevel::INFO);
 	}
 
 	*m_userTrampVar = m_trampoline;
 
 	MemoryProtector prot(m_fnAddress, roundProlSz, ProtFlag::R | ProtFlag::W | ProtFlag::X);
-	const auto prolJmp = makex64PreferredJump(m_fnAddress, m_fnCallback);
+	// we're really space constrained, try to do some stupid hacks like checking for 0xCC's near us
+	auto cave = findNearestCodeCave(m_fnAddress, 8);
+	if (!cave) {
+		ErrorLog::singleton().push("Function too small to hook safely, no code caves found near function", ErrorLevel::SEV);
+		return false;
+	}
+
+	MemoryProtector holderProt(*cave, 8, ProtFlag::R | ProtFlag::W | ProtFlag::X, false);
+	const auto prolJmp = makex64MinimumJump(m_fnAddress, m_fnCallback, *cave);
 	m_disasm.writeEncoding(prolJmp);
 
 	// Nop the space between jmp and end of prologue
+	assert(roundProlSz >= minProlSz);
 	const uint8_t nopSz = (uint8_t)(roundProlSz - minProlSz);
 	std::memset((char*)(m_fnAddress + minProlSz), 0x90, (size_t)nopSz);
 
