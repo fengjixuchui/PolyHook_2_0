@@ -114,6 +114,12 @@ protected:
 	template<typename MakeJmpFn>
 	PLH::insts_t relocateTrampoline(insts_t& prologue, uint64_t jmpTblStart, const int64_t delta, const uint8_t jmpSz, MakeJmpFn makeJmp, const PLH::insts_t& instsNeedingReloc, const PLH::insts_t& instsNeedingEntry);
 
+	/**
+	Insert nops from [Base, Base+size). We _MUST_ insert multi-byte nops so we don't accidentally
+	confused our code cave finder for x64
+	**/
+	void writeNop(uint64_t base, uint32_t size);
+
 	bool                    m_hooked;
 };
 
@@ -133,7 +139,7 @@ PLH::insts_t PLH::Detour::relocateTrampoline(insts_t& prologue, uint64_t jmpTblS
 			inst.setDestination(jmpTblCurAddr);
 			jmpTblCurAddr += jmpSz;
 
-			m_disasm.writeEncoding(entry);
+			m_disasm.writeEncoding(entry, *this);
 			jmpTblEntries.insert(jmpTblEntries.end(), entry.begin(), entry.end());
 		} else if (std::find(instsNeedingReloc.begin(), instsNeedingReloc.end(), inst) != instsNeedingReloc.end()) {
 			assert(inst.hasDisplacement());
@@ -145,7 +151,7 @@ PLH::insts_t PLH::Detour::relocateTrampoline(insts_t& prologue, uint64_t jmpTblS
 			inst.setAddress(inst.getAddress() + delta);
 		}
 
-		m_disasm.writeEncoding(inst);
+		m_disasm.writeEncoding(inst, *this);
 	}
 	return jmpTblEntries;
 }

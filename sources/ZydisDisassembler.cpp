@@ -7,13 +7,13 @@ PLH::ZydisDisassembler::ZydisDisassembler(PLH::Mode mode) : ADisassembler(mode),
 		(mode == PLH::Mode::x64) ? ZYDIS_MACHINE_MODE_LONG_64 : ZYDIS_MACHINE_MODE_LONG_COMPAT_32,
 		(mode == PLH::Mode::x64) ? ZYDIS_ADDRESS_WIDTH_64 : ZYDIS_ADDRESS_WIDTH_32)))
 	{
-		ErrorLog::singleton().push("Failed to initialize zydis decoder", ErrorLevel::SEV);
+		Log::log("Failed to initialize zydis decoder", ErrorLevel::SEV);
 		return;
 	}
 
 	if (ZYAN_FAILED(ZydisFormatterInit(m_formatter, ZYDIS_FORMATTER_STYLE_INTEL)))
 	{
-		ErrorLog::singleton().push("Failed to initialize zydis formatter", ErrorLevel::SEV);
+		Log::log("Failed to initialize zydis formatter", ErrorLevel::SEV);
 		return;
 	}
 
@@ -27,13 +27,23 @@ PLH::ZydisDisassembler::~ZydisDisassembler() {
 }
 
 PLH::insts_t
-PLH::ZydisDisassembler::disassemble(uint64_t firstInstruction, uint64_t start, uint64_t End) {
+PLH::ZydisDisassembler::disassemble(uint64_t firstInstruction, uint64_t start, uint64_t End, const MemAccessor& accessor) {
 	insts_t insVec;
 	m_branchMap.clear();
 
+	uint64_t size = End - start;
+	assert(size > 0);
+	if (size <= 0) {
+		return insVec;
+	}
+
+	// copy potentially remote memory to local buffer
+	uint8_t* buf = new uint8_t[(uint32_t)size];
+	accessor.mem_copy((uint64_t)buf, firstInstruction, size);
+
 	ZydisDecodedInstruction insInfo;
 	uint64_t offset = 0;
-	while(ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(m_decoder, (char*)(firstInstruction + offset), (ZyanUSize)(End - start - offset), &insInfo)))
+	while(ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(m_decoder, (char*)(buf + offset), (ZyanUSize)(size - offset), &insInfo)))
 	{
 		Instruction::Displacement displacement = {};
 		displacement.Absolute = 0;
@@ -49,7 +59,7 @@ PLH::ZydisDisassembler::disassemble(uint64_t firstInstruction, uint64_t start, u
 						 0,
 						 false,
 			             false,
-						 (uint8_t*)((unsigned char*)firstInstruction + offset),
+						 (uint8_t*)((unsigned char*)buf + offset),
 						 insInfo.length,
 						 ZydisMnemonicGetString(insInfo.mnemonic),
 						 opstr,
@@ -60,9 +70,12 @@ PLH::ZydisDisassembler::disassemble(uint64_t firstInstruction, uint64_t start, u
 
 		// searches instruction vector and updates references
 		addToBranchMap(insVec, inst);
+		if (isFuncEnd(inst))
+			break;
 
 		offset += insInfo.length;
 	}
+	delete[] buf;
 	return insVec;
 }
 

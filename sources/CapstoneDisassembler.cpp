@@ -7,7 +7,7 @@ PLH::CapstoneDisassembler::CapstoneDisassembler(const PLH::Mode mode) : ADisasse
 	const cs_mode csMode = (mode == PLH::Mode::x64 ? CS_MODE_64 : CS_MODE_32);
 	if (cs_open(CS_ARCH_X86, csMode, &m_capHandle) != CS_ERR_OK) {
 		m_capHandle = NULL;
-		ErrorLog::singleton().push("Failed to initialize capstone", ErrorLevel::SEV);
+		Log::log("Failed to initialize capstone", ErrorLevel::SEV);
 	}
 
 	cs_option(m_capHandle, CS_OPT_DETAIL, CS_OPT_ON);
@@ -20,13 +20,24 @@ PLH::CapstoneDisassembler::~CapstoneDisassembler() {
 }
 
 PLH::insts_t
-PLH::CapstoneDisassembler::disassemble(uint64_t firstInstruction, uint64_t start, uint64_t End) {
+PLH::CapstoneDisassembler::disassemble(uint64_t firstInstruction, uint64_t start, uint64_t End, const MemAccessor& accessor) {
 	cs_insn* insInfo = cs_malloc(m_capHandle);
 	insts_t insVec;
 	m_branchMap.clear();
 
 	uint64_t size = End - start;
-	while (cs_disasm_iter(m_capHandle, (const uint8_t**)&firstInstruction, (size_t*)&size, &start, insInfo)) {
+	assert(size > 0);
+	if (size <= 0)
+		return insVec;
+
+	// copy potentially remote memory to local buffer
+	uint8_t* buf = new uint8_t[(uint32_t)size];
+
+	// bufAddr updated by cs_disasm_iter
+	uint64_t bufAddr = (uint64_t)buf;
+	accessor.mem_copy((uint64_t)buf, firstInstruction, size);
+
+	while (cs_disasm_iter(m_capHandle, (const uint8_t**)&bufAddr, (size_t*)&size, &start, insInfo)) {
 		// Set later by 'SetDisplacementFields'
 		Instruction::Displacement displacement = {};
 		displacement.Absolute = 0;
@@ -47,7 +58,11 @@ PLH::CapstoneDisassembler::disassemble(uint64_t firstInstruction, uint64_t start
 
 		// searches instruction vector and updates references
 		addToBranchMap(insVec, inst);
+
+		if (isFuncEnd(inst))
+			break;
 	}
+	delete[] buf;
 	cs_free(insInfo, 1);
 	return insVec;
 }

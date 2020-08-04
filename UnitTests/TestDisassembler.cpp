@@ -5,6 +5,7 @@
 #include "polyhook2/CapstoneDisassembler.hpp"
 #include "polyhook2/ZydisDisassembler.hpp"
 #include "polyhook2/Tests/StackCanary.hpp"
+#include "polyhook2/MemAccessor.hpp"
 
 #include <iostream>
 #include <vector>
@@ -42,7 +43,9 @@ std::vector<uint8_t> x86ASM = {
 	0x74, 0x00,                         //4) 57b8edcb je  0x57b8edcd
 	0x8d, 0x87, 0x89, 0x67, 0x00, 0x00, //5) 57b8edcd lea eax, [edi+0x6789]child@4
 	0xeb, 0xf0,                         //6) 57b8edd3 jmp 0x57b8edc5       child@3
-	0xe9, 0x00, 0xff, 0x00, 0x00,        //7) 57b8edd5 jmp 57b9ecda
+};
+
+std::vector<uint8_t> x86ASM_FF25 = {
 	0xFF, 0x25, 0x00, 0x00, 0x00, 0x00, // this displacement is re-written at test time since it's absolute in x86
 	0xAB, 0x00, 0x00, 0xAA
 };
@@ -91,7 +94,7 @@ TEMPLATE_TEST_CASE("Test Disassemblers x64", "[ADisassembler],[CapstoneDisassemb
 	PLH::StackCanary canaryg;
 	TestType disasm(PLH::Mode::x64);
 	auto                      Instructions = disasm.disassemble((uint64_t)&x64ASM.front(), (uint64_t)&x64ASM.front(),
-		(uint64_t)&x64ASM.front() + x64ASM.size());
+		(uint64_t)&x64ASM.front() + x64ASM.size(), PLH::MemAccessor());
 
 	Instructions.erase(Instructions.begin() + 0xB, Instructions.end());
 
@@ -142,10 +145,10 @@ TEMPLATE_TEST_CASE("Test Disassemblers x64", "[ADisassembler],[CapstoneDisassemb
 		PLH::StackCanary canary;
 		auto vecCopy = x64ASM;
 		Instructions[8].setRelativeDisplacement(0x00);
-		disasm.writeEncoding(Instructions[8]);
+		disasm.writeEncoding(Instructions[8], PLH::MemAccessor());
 
 		Instructions[9].setRelativeDisplacement(0x00);
-		disasm.writeEncoding(Instructions[9]);
+		disasm.writeEncoding(Instructions[9], PLH::MemAccessor());
 
 		REQUIRE(Instructions[8].getDestination() == Instructions[8].getAddress() + Instructions[8].size());
 		REQUIRE(Instructions[9].getDestination() == Instructions[9].getAddress() + Instructions[9].size());
@@ -153,7 +156,7 @@ TEMPLATE_TEST_CASE("Test Disassemblers x64", "[ADisassembler],[CapstoneDisassemb
 		// undo writes
 		x64ASM = vecCopy;
 		Instructions = disasm.disassemble((uint64_t)&x64ASM.front(), (uint64_t)&x64ASM.front(),
-			(uint64_t)&x64ASM.front() + x64ASM.size());
+			(uint64_t)&x64ASM.front() + x64ASM.size(), PLH::MemAccessor());
 	}
 
 	SECTION("Check multiple calls") {
@@ -161,14 +164,14 @@ TEMPLATE_TEST_CASE("Test Disassemblers x64", "[ADisassembler],[CapstoneDisassemb
 		PLH::insts_t insts;
 		for (int i = 0; i < 100; i++) {
 			insts = disasm.disassemble((uint64_t)&x64ASM.front(), (uint64_t)&x64ASM.front(),
-				(uint64_t)&x64ASM.front() + x64ASM.size());
+				(uint64_t)&x64ASM.front() + x64ASM.size(), PLH::MemAccessor());
 		}
 	}
 
 	SECTION("Verify branching, relative fields") {
 		PLH::StackCanary canary;
 		PLH::insts_t insts = disasm.disassemble((uint64_t)&x64ASM.front(), (uint64_t)&x64ASM.front(),
-			(uint64_t)&x64ASM.front() + x64ASM.size());
+			(uint64_t)&x64ASM.front() + x64ASM.size(), PLH::MemAccessor());
 
 		REQUIRE(insts.at(0).hasDisplacement() == false);
 		REQUIRE(insts.at(0).isBranching() == false);
@@ -193,16 +196,16 @@ TEMPLATE_TEST_CASE("Test Disassemblers x64", "[ADisassembler],[CapstoneDisassemb
 			randomBuf[i] = randByte();
 
 		auto insts = disasm.disassemble((uint64_t)randomBuf, (uint64_t)0x0,
-										500);
+										500, PLH::MemAccessor());
 		std::cout << insts << std::endl;
 	}
 }
 
-TEMPLATE_TEST_CASE("Test Disassemblers x86", "[ADisassembler],[CapstoneDisassembler],[ZydisDisassembler]", PLH::CapstoneDisassembler, PLH::ZydisDisassembler) {
-	// re-write ff 25 displacement to point to data (absolute)
 
+TEMPLATE_TEST_CASE("Test Disassemblers x86 FF25", "[ADisassembler],[CapstoneDisassembler],[ZydisDisassembler]", PLH::CapstoneDisassembler, PLH::ZydisDisassembler) {
+	// re-write ff 25 displacement to point to data (absolute)
 #ifndef _WIN64
-	*(uint32_t*)(x86ASM.data() + 36) = (uint32_t)(x86ASM.data() + 40);
+	*(uint32_t*)(x86ASM_FF25.data() + 2) = (uint32_t)(x86ASM_FF25.data() + 6); // 0xFF25 <pMem> = &mem; (just fyi *mem == 0xAA0000AB)
 #else
 	// this test is not suitable for x64 due to ff 25 not being re-written
 	return;
@@ -210,12 +213,38 @@ TEMPLATE_TEST_CASE("Test Disassemblers x86", "[ADisassembler],[CapstoneDisassemb
 
 	PLH::StackCanary canaryg;
 	TestType disasm(PLH::Mode::x86);
-	auto                      Instructions = disasm.disassemble((uint64_t)&x86ASM.front(), (uint64_t)&x86ASM.front(),
-		(uint64_t)&x86ASM.front() + x86ASM.size());
+	auto                      Instructions = disasm.disassemble((uint64_t)&x86ASM_FF25.front(), (uint64_t)&x86ASM_FF25.front(),
+		(uint64_t)&x86ASM_FF25.front() + x86ASM_FF25.size(), PLH::MemAccessor());
 
-	Instructions.erase(Instructions.begin() + 0x9, Instructions.end());
-	std::vector<uint8_t> CorrectSizes = {2, 6, 5, 6, 2, 6, 2, 5, 6};
-	std::vector<char*> CorrectMnemonic = {"add", "add", "add", "jne", "je", "lea", "jmp", "jmp", "jmp"};
+	SECTION("Check disassembler integrity") {
+		PLH::StackCanary canary;
+		REQUIRE(Instructions.size() == 1);
+		std::cout << Instructions << std::endl;
+
+		for (const auto& p : disasm.getBranchMap()) {
+			std::cout << std::hex << "dest: " << p.first << " -> " << std::dec << p.second << std::endl;
+		}
+
+		// special little indirect ff25 jmp
+#ifndef _WIN64
+		REQUIRE(Instructions.back().getDestination() == 0xaa0000ab);
+#endif
+	}
+
+	REQUIRE(Instructions.at(0).isBranching());
+	REQUIRE(Instructions.at(0).hasDisplacement());
+}
+
+TEMPLATE_TEST_CASE("Test Disassemblers x86", "[ADisassembler],[CapstoneDisassembler],[ZydisDisassembler]", PLH::CapstoneDisassembler, PLH::ZydisDisassembler) {
+	PLH::StackCanary canaryg;
+	TestType disasm(PLH::Mode::x86);
+	auto                      Instructions = disasm.disassemble((uint64_t)&x86ASM.front(), (uint64_t)&x86ASM.front(),
+		(uint64_t)&x86ASM.front() + x86ASM.size(), PLH::MemAccessor());
+
+	// TODO: full buffer isn't disassembled
+	//Instructions.erase(Instructions.begin() + 0x9, Instructions.end());
+	std::vector<uint8_t> CorrectSizes = {2, 6, 5, 6, 2, 6, 2};
+	std::vector<char*> CorrectMnemonic = {"add", "add", "add", "jne", "je", "lea", "jmp"};
 
 	uint64_t PrevInstAddress = (uint64_t)&x86ASM.front();
 	size_t   PrevInstSize = 0;
@@ -227,57 +256,52 @@ TEMPLATE_TEST_CASE("Test Disassemblers x86", "[ADisassembler],[CapstoneDisassemb
 			<< " Mnemonic:"
 			<< Instructions[i].getMnemonic());
 
-		REQUIRE(filterJXX(Instructions[i].getMnemonic()).compare(CorrectMnemonic[i]) == 0);
+		REQUIRE(filterJXX(Instructions.at(i).getMnemonic()).compare(CorrectMnemonic.at(i)) == 0);
 
-		REQUIRE(Instructions[i].size() == CorrectSizes[i]);
+		REQUIRE(Instructions.at(i).size() == CorrectSizes.at(i));
 
-		REQUIRE(Instructions[i].getAddress() == (PrevInstAddress + PrevInstSize));
+		REQUIRE(Instructions.at(i).getAddress() == (PrevInstAddress + PrevInstSize));
 		PrevInstAddress = Instructions[i].getAddress();
 		PrevInstSize = Instructions[i].size();
 	}
-	REQUIRE(Instructions.size() == 9);
+	REQUIRE(Instructions.size() == 7);
 
 	SECTION("Check disassembler integrity") {
 		PLH::StackCanary canary;
-		REQUIRE(Instructions.size() == 9);
+		REQUIRE(Instructions.size() == 7);
 		std::cout << Instructions << std::endl;
 
 		for (const auto &p : disasm.getBranchMap()) {
 			std::cout << std::hex << "dest: " << p.first << " -> " << std::dec << p.second << std::endl;
 		}
-
-		// special little indirect ff25 jmp
-#ifndef _WIN64
-		REQUIRE(Instructions.back().getDestination() == 0xaa0000ab);
-#endif
 	}
 
 	SECTION("Check branch map") {
 		PLH::StackCanary canary;
 		auto brMap = disasm.getBranchMap();
 		REQUIRE(brMap.size() == 3);
-		REQUIRE(brMap.find(Instructions[3].getAddress()) != brMap.end());
-		REQUIRE(brMap.find(Instructions[5].getAddress()) != brMap.end());
-		REQUIRE(brMap.find(Instructions[6].getAddress()) != brMap.end());
+		REQUIRE(brMap.find(Instructions.at(3).getAddress()) != brMap.end());
+		REQUIRE(brMap.find(Instructions.at(5).getAddress()) != brMap.end());
+		REQUIRE(brMap.find(Instructions.at(6).getAddress()) != brMap.end());
 	}
 
 	SECTION("Check instruction re-encoding integrity") {
 		PLH::StackCanary canary;
 		auto vecCopy = x86ASM;
-		Instructions[3].setRelativeDisplacement(0x00);
-		disasm.writeEncoding(Instructions[3]);
+		Instructions.at(3).setRelativeDisplacement(0x00);
+		disasm.writeEncoding(Instructions.at(3), PLH::MemAccessor());
 
-		Instructions[6].setRelativeDisplacement(0x00);
-		disasm.writeEncoding(Instructions[6]);
+		Instructions.at(6).setRelativeDisplacement(0x00);
+		disasm.writeEncoding(Instructions.at(6), PLH::MemAccessor());
 
-		REQUIRE(Instructions[3].getDestination() == Instructions[3].getAddress() + Instructions[3].size());
-		REQUIRE(Instructions[6].getDestination() == Instructions[6].getAddress() + Instructions[6].size());
+		REQUIRE(Instructions.at(3).getDestination() == Instructions.at(3).getAddress() + Instructions.at(3).size());
+		REQUIRE(Instructions.at(6).getDestination() == Instructions.at(6).getAddress() + Instructions.at(6).size());
 
 		// undo writes
 		x86ASM = vecCopy;
 		Instructions =
 			disasm.disassemble((uint64_t)&x86ASM.front(), (uint64_t)&x86ASM.front(),
-			(uint64_t)&x86ASM.front() + x86ASM.size());
+			(uint64_t)&x86ASM.front() + x86ASM.size(), PLH::MemAccessor());
 	}
 
 	SECTION("Check multiple calls") {
@@ -285,14 +309,14 @@ TEMPLATE_TEST_CASE("Test Disassemblers x86", "[ADisassembler],[CapstoneDisassemb
 		PLH::insts_t insts;
 		for (int i = 0; i < 100; i++) {
 			insts = disasm.disassemble((uint64_t)&x86ASM.front(), (uint64_t)&x86ASM.front(),
-				(uint64_t)&x86ASM.front() + x86ASM.size());
+				(uint64_t)&x86ASM.front() + x86ASM.size(), PLH::MemAccessor());
 		}
 	}
 
 	SECTION("Verify branching, relative fields") {
 		PLH::StackCanary canary;
 		PLH::insts_t insts = disasm.disassemble((uint64_t)&x86ASM.front(), (uint64_t)&x86ASM.front(),
-			(uint64_t)&x86ASM.front() + x86ASM.size());
+			(uint64_t)&x86ASM.front() + x86ASM.size(), PLH::MemAccessor());
 
 		REQUIRE(insts.at(4).isBranching());
 		REQUIRE(insts.at(4).hasDisplacement());
@@ -302,9 +326,6 @@ TEMPLATE_TEST_CASE("Test Disassemblers x86", "[ADisassembler],[CapstoneDisassemb
 
 		REQUIRE(insts.at(6).isBranching());
 		REQUIRE(insts.at(6).hasDisplacement());
-
-		REQUIRE(insts.at(7).isBranching());
-		REQUIRE(insts.at(7).hasDisplacement());
 	}
 
 	SECTION("Test garbage instructions") {
@@ -314,7 +335,7 @@ TEMPLATE_TEST_CASE("Test Disassemblers x86", "[ADisassembler],[CapstoneDisassemb
 			randomBuf[i] = randByte();
 
 		auto insts = disasm.disassemble((uint64_t)randomBuf, (uint64_t)0x0,
-										500);
+										500, PLH::MemAccessor());
 		std::cout << insts << std::endl;
 	}
 }
@@ -323,7 +344,7 @@ TEMPLATE_TEST_CASE("Test Disassemblers x64 Two", "[ADisassembler],[CapstoneDisas
 	PLH::StackCanary canaryg;
 	TestType disasm(PLH::Mode::x64);
 	PLH::insts_t Instructions = disasm.disassemble((uint64_t)&x64ASM2.front(), (uint64_t)&x64ASM2.front(),
-		(uint64_t)&x64ASM2.front() + x64ASM2.size());
+		(uint64_t)&x64ASM2.front() + x64ASM2.size(), PLH::MemAccessor());
 
 	SECTION("Verify relative displacements") {
 		REQUIRE(Instructions.at(0).m_isRelative);
@@ -350,18 +371,19 @@ TEST_CASE("Compare x86 Decompilers", "[ADisassembler],[ZydisDisassembler][Capsto
 	// Use capstone as reference
 	PLH::CapstoneDisassembler disasmRef(PLH::Mode::x86);
 	auto                      InstructionsRef = disasmRef.disassemble((uint64_t)&x86ASM.front(), (uint64_t)&x86ASM.front(),
-		(uint64_t)&x86ASM.front() + x86ASM.size());
+		(uint64_t)&x86ASM.front() + x86ASM.size(), PLH::MemAccessor());
 
 	PLH::ZydisDisassembler disasm(PLH::Mode::x86);
 	auto                      Instructions = disasm.disassemble((uint64_t)&x86ASM.front(), (uint64_t)&x86ASM.front(),
-		(uint64_t)&x86ASM.front() + x86ASM.size());
+		(uint64_t)&x86ASM.front() + x86ASM.size(), PLH::MemAccessor());
 
-	Instructions.erase(Instructions.begin() + 0x9, Instructions.end());
-	Instructions.erase(Instructions.begin() + 0x9, Instructions.end());
+	// TODO: full buffer not disassembled
+	//Instructions.erase(Instructions.begin() + 0x9, Instructions.end());
+	//Instructions.erase(Instructions.begin() + 0x9, Instructions.end());
 
 	SECTION("Check Integrity") {
 		PLH::StackCanary canary;
-		REQUIRE(Instructions.size() == 9);
+		REQUIRE(Instructions.size() == 7);
 		std::cout << Instructions << std::endl;
 
 		for (const auto &p : disasm.getBranchMap()) {

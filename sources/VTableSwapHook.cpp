@@ -4,13 +4,22 @@ PLH::VTableSwapHook::VTableSwapHook(const char* Class, const VFuncMap& redirectM
 	: VTableSwapHook((uint64_t)Class, redirectMap)
 {}
 
+PLH::VTableSwapHook::VTableSwapHook(const uint64_t Class)
+	: VTableSwapHook(Class, PLH::VFuncMap{ })
+{}
+
 PLH::VTableSwapHook::VTableSwapHook(const uint64_t Class, const VFuncMap& redirectMap) 
-	: m_class(Class)
+	: m_newVtable(nullptr)
+	, m_origVtable(nullptr)
+	, m_class(Class)
+	, m_vFuncCount(0)
 	, m_redirectMap(redirectMap)
+	, m_origVFuncs()
+	, m_Hooked(false)
 {}
 
 bool PLH::VTableSwapHook::hook() {
-	MemoryProtector prot(m_class, sizeof(void*), ProtFlag::R | ProtFlag::W);
+	MemoryProtector prot(m_class, sizeof(void*), ProtFlag::R | ProtFlag::W, *this);
 	m_origVtable = *(uintptr_t**)m_class;
 	m_vFuncCount = countVFuncs();
 	if (m_vFuncCount <= 0)
@@ -41,7 +50,7 @@ bool PLH::VTableSwapHook::unHook() {
 	if (!m_Hooked)
 		return false;
 
-	MemoryProtector prot(m_class, sizeof(void*), ProtFlag::R | ProtFlag::W);
+	MemoryProtector prot(m_class, sizeof(void*), ProtFlag::R | ProtFlag::W, *this);
 	*(uint64_t**)m_class = (uint64_t*)m_origVtable;
 	
 	m_newVtable.reset();

@@ -6,19 +6,23 @@ PLH::VFuncSwapHook::VFuncSwapHook(const char* Class, const VFuncMap& redirectMap
 
 PLH::VFuncSwapHook::VFuncSwapHook(const uint64_t Class, const VFuncMap& redirectMap, VFuncMap* userOrigMap) 
 	: m_class(Class)
+	, m_vtable(nullptr)
+	, m_vFuncCount(0)
 	, m_redirectMap(redirectMap)
+	, m_origVFuncs()
 	, m_userOrigMap(userOrigMap)
+	, m_Hooked(false)
 {}
 
 bool PLH::VFuncSwapHook::hook() {
 	assert(m_userOrigMap != nullptr);
-	MemoryProtector prot(m_class, sizeof(void*), ProtFlag::R | ProtFlag::W);
+	MemoryProtector prot(m_class, sizeof(void*), ProtFlag::R | ProtFlag::W, *this);
 	m_vtable = *(uintptr_t**)m_class;
 	m_vFuncCount = countVFuncs();
 	if (m_vFuncCount <= 0)
 		return false;
 
-	MemoryProtector prot2((uint64_t)&m_vtable[0], sizeof(uintptr_t) * m_vFuncCount, ProtFlag::R | ProtFlag::W);
+	MemoryProtector prot2((uint64_t)&m_vtable[0], sizeof(uintptr_t) * m_vFuncCount, ProtFlag::R | ProtFlag::W, *this);
 	for (const auto& p : m_redirectMap) {
 		assert(p.first < m_vFuncCount);
 		if (p.first >= m_vFuncCount)
@@ -40,7 +44,7 @@ bool PLH::VFuncSwapHook::unHook() {
 	if (!m_Hooked)
 		return false;
 
-	MemoryProtector prot2((uint64_t)&m_vtable[0], sizeof(uintptr_t) * m_vFuncCount, ProtFlag::R | ProtFlag::W);
+	MemoryProtector prot2((uint64_t)&m_vtable[0], sizeof(uintptr_t) * m_vFuncCount, ProtFlag::R | ProtFlag::W, *this);
 	for (const auto& p : m_origVFuncs) {
 		assert(p.first < m_vFuncCount);
 		if (p.first >= m_vFuncCount)
