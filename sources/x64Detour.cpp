@@ -33,6 +33,9 @@ template<uint16_t SIZE>
 std::optional<uint64_t> PLH::x64Detour::findNearestCodeCave(uint64_t addr) {
 	const uint64_t chunkSize = 64000;
 	unsigned char* data = new unsigned char[chunkSize];
+	auto delete_data = finally([=]() {
+		delete[] data;
+	});
 
 	// RPM so we don't pagefault, careful to check for partial reads
 	auto calc_2gb_below = [](uint64_t address) -> uint64_t
@@ -45,10 +48,34 @@ std::optional<uint64_t> PLH::x64Detour::findNearestCodeCave(uint64_t addr) {
 		return (address < (uint64_t)0xffffffff80000000) ? address + 0x7ff80000 : (uint64_t)0xfffffffffff80000;
 	};
 	
-	unsigned char CC_PATTERN[SIZE] = { 0xCC };
-	memset(CC_PATTERN, 0xCC, SIZE);
-	unsigned char NOP1_PATTERN[SIZE] = { 0x90 };
-	std::memset(NOP1_PATTERN, 0x90, SIZE);
+	std::string CC_PATTERN_RET = "c3 " + repeat_n("cc", SIZE, " ");
+	std::string NOP1_PATTERN_RET = "c3 " + repeat_n("90", SIZE, " ");
+
+	// TODO: 0xC2 ?? ?? matches
+	const char* NOP2_RET = "c3 0f 1f 44 00 00";
+	const char* NOP3_RET = "c3 0f 1f 84 00 00 00 00 00";
+	const char* NOP4_RET = "c3 66 0f 1f 84 00 00 00 00 00";
+	const char* NOP5_RET = "c3 66 66 0f 1f 84 00 00 00 00 00";
+	const char* NOP6_RET = "c3 cc cc cc cc cc cc 66 0f 1f 44 00 00";
+	const char* NOP7_RET = "c3 66 66 66 66 66 66 0f 1f 84 00 00 00 00 00";
+	const char* NOP8_RET = "c3 cc cc cc cc cc cc 66 0f 1f 84 00 00 00 00 00";
+	const char* NOP9_RET = "c3 cc cc cc cc cc cc 66 66 0f 1f 84 00 00 00 00 00";
+	const char* NOP10_RET = "c3 cc cc cc cc cc cc cc 66 66 0f 1f 84 00 00 00 00 00";
+	const char* NOP11_RET = "c3 cc cc cc cc cc cc cc 66 66 0f 1f 84 00 00 00 00 00";
+	
+	// Most common:
+	// https://gist.github.com/stevemk14ebr/d117e8d0fd1432fb2a92354a034ce5b9
+	// We check for rets to verify it's not like like a mid function or jmp table pad
+	// [0xc3 | 0xC2 ? ? ? ? ] & 6666666666660f1f840000000000
+	// [0xc3 | 0xC2 ? ? ? ? ] & 0f1f440000
+	// [0xc3 | 0xC2 ? ? ? ? ] & 0f1f840000000000
+	// [0xc3 | 0xC2 ? ? ? ? ] & cccccccccccc660f1f440000
+	// [0xc3 | 0xC2 ? ? ? ? ] & cccccccccccc660f1f840000000000
+	// [0xc3 | 0xC2 ? ? ? ? ] & cccccccccccccc66660f1f840000000000
+	// [0xc3 | 0xC2 ? ? ? ? ] & cccccccccccccccccccccccccccc66660f1f840000000000
+	// [0xc3 | 0xC2 ? ? ? ? ] & cccccccccccc66660f1f840000000000
+	// [0xc3 | 0xC2 ? ? ? ? ] & 66660f1f840000000000
+	// [0xc3 | 0xC2 ? ? ? ? ] & 660f1f840000000000
 
 	// Search 2GB below
 	for (uint64_t search = addr - chunkSize; (search + chunkSize) >= calc_2gb_below(addr); search -= chunkSize) {
@@ -58,16 +85,59 @@ std::optional<uint64_t> PLH::x64Detour::findNearestCodeCave(uint64_t addr) {
 			if (read == 0 || read < SIZE)
 				continue;
 
-			auto found = (uint64_t)my_memmem_rev((const char*)data, read, (const char*)CC_PATTERN, SIZE);
-			if (found) {
-				delete[] data;
-				return search + (found - (uint64_t)data);
+			auto finder = [&](const char* pattern, const uint64_t offset) -> std::optional<uint64_t> {
+				if (auto found = (uint64_t)findPattern_rev((uint64_t)data, read, pattern)) {
+					return search + (found + offset - (uint64_t)data);
+				}
+				return {};
+			};
+
+			if (auto found = finder(CC_PATTERN_RET.c_str(), 1)) {
+				return found;
 			}
 
-			found = (uint64_t)my_memmem_rev((const char*)data, read, (const char*)NOP1_PATTERN, SIZE);
-			if (found) {
-				delete[] data;
-				return search + (found - (uint64_t)data);
+			if (auto found = finder(NOP1_PATTERN_RET.c_str(), 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP2_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP3_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP4_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP5_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP6_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP7_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP8_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP9_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP10_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP11_RET, 1)) {
+				return found;
 			}
 		}
 	}
@@ -83,21 +153,62 @@ std::optional<uint64_t> PLH::x64Detour::findNearestCodeCave(uint64_t addr) {
 			if (read == 0 || read < SIZE)
 				continue;
 
-			auto found = (uint64_t)my_memmem((const char*)data, read, (const char*)CC_PATTERN, SIZE);
-			if (found) {
-				delete[] data;
-				return search + (found - (uint64_t)data);
+			auto finder = [&](const char* pattern, const uint64_t offset) -> std::optional<uint64_t> {
+				if (auto found = (uint64_t)findPattern((uint64_t)data, read, pattern)) {
+					return search + (found + offset - (uint64_t)data);
+				}
+				return {};
+			};
+
+			if (auto found = finder(CC_PATTERN_RET.c_str(), 1)) {
+				return found;
+			} 
+
+			if (auto found = finder(NOP1_PATTERN_RET.c_str(), 1)) {
+				return found;
 			}
 
-			found = (uint64_t)my_memmem((const char*)data, read, (const char*)NOP1_PATTERN, SIZE);
-			if (found) {
-				delete[] data;
-				return search + (found - (uint64_t)data);
+			if (auto found = finder(NOP2_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP3_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP4_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP5_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP6_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP7_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP8_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP9_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP10_RET, 1)) {
+				return found;
+			}
+
+			if (auto found = finder(NOP11_RET, 1)) {
+				return found;
 			}
 		}
 	}
-
-	delete[] data;
 	return {};
 }
 
@@ -195,6 +306,8 @@ bool PLH::x64Detour::hook() {
 
 bool PLH::x64Detour::makeTrampoline(insts_t& prologue, insts_t& trampolineOut) {
 	assert(!prologue.empty());
+	assert(m_trampoline == NULL);
+
 	const uint64_t prolStart = prologue.front().getAddress();
 	const uint16_t prolSz = calcInstsSz(prologue);
 	const uint8_t destHldrSz = 8;
@@ -205,32 +318,37 @@ bool PLH::x64Detour::makeTrampoline(insts_t& prologue, insts_t& trampolineOut) {
 	
 	The relocation could also because of data operations too. But that's specific to the function and can't
 	work again on a retry (same function, duh). Return immediately in that case.**/
-	uint8_t neededEntryCount = 5;
+	uint8_t neededEntryCount = 0;
 	PLH::insts_t instsNeedingEntry;
 	PLH::insts_t instsNeedingReloc;
-
 	uint8_t retries = 0;
+
+	bool good = false;
 	do {
-		if (retries++ > 4) {
-			Log::log("Failed to calculate trampoline information", ErrorLevel::SEV);
-			return false;
-		}
-
-		if (m_trampoline != NULL) {
-			delete[](unsigned char*)m_trampoline;
-			neededEntryCount = (uint8_t)instsNeedingEntry.size();
-		}
-
+		neededEntryCount = std::max((uint8_t)instsNeedingEntry.size(), (uint8_t)5);
+		
 		// prol + jmp back to prol + N * jmpEntries
 		m_trampolineSz = (uint16_t)(prolSz + (getMinJmpSize() + destHldrSz) +
 			(getMinJmpSize() + destHldrSz)* neededEntryCount);
-		m_trampoline = (uint64_t) new unsigned char[m_trampolineSz];
 
+		// allocate new trampoline before deleting old to increase odds of new mem address
+		uint64_t tmpTrampoline = (uint64_t)new unsigned char[m_trampolineSz];
+		if (m_trampoline != NULL) {
+			delete[](unsigned char*)m_trampoline;
+		}
+
+		m_trampoline = tmpTrampoline;
 		const int64_t delta = m_trampoline - prolStart;
 
 		if (!buildRelocationList(prologue, prolSz, delta, instsNeedingEntry, instsNeedingReloc))
-			return false;
-	} while (instsNeedingEntry.size() > neededEntryCount);
+			continue;
+
+		good = true;
+	} while (retries++ < 5 && !good);
+
+	if (!good) {
+		return false;
+	}
 
 	const int64_t delta = m_trampoline - prolStart;
 	MemoryProtector prot(m_trampoline, m_trampolineSz, ProtFlag::R | ProtFlag::W | ProtFlag::X, *this, false);
