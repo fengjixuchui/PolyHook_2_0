@@ -175,6 +175,10 @@ bool PLH::Detour::buildRelocationList(insts_t& prologue, const uint64_t roundPro
 
 bool PLH::Detour::unHook() {
 	assert(m_hooked);
+	if (!m_hooked) {
+		Log::log("Detour unhook failed: no hook present", ErrorLevel::SEV);
+		return false;
+	}
 
 	MemoryProtector prot(m_fnAddress, PLH::calcInstsSz(m_originalInsts), ProtFlag::R | ProtFlag::W | ProtFlag::X, *this);
 	m_disasm.writeEncoding(m_originalInsts, *this);
@@ -190,5 +194,16 @@ bool PLH::Detour::unHook() {
 	}
 	
 	m_hooked = false;
+	return true;
+}
+
+bool PLH::Detour::reHook()
+{
+	MemoryProtector prot(m_fnAddress, m_hookSize, ProtFlag::R | ProtFlag::W | ProtFlag::X, *this);
+	m_disasm.writeEncoding(m_hookInsts, *this);
+
+	// Nop the space between jmp and end of prologue
+	assert(m_hookSize >= m_nopProlOffset);
+	writeNop(m_fnAddress + m_nopProlOffset, m_nopSize);
 	return true;
 }
